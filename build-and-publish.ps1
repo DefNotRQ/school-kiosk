@@ -13,7 +13,7 @@ $commit = git rev-parse HEAD
 Check-Exit
 & $Dotnet run --project tests -c Release
 Check-Exit
-& $Dotnet build app/SchoolKiosk.csproj -c Release "-p:AndroidSdkDirectory=$AndroidSdk" --nologo -v:minimal
+& $Dotnet build app/SchoolKiosk.csproj -c Release "-p:AndroidSdkDirectory=$AndroidSdk" --nologo -v:q -clp:ErrorsOnly
 Check-Exit
 $apksigner = Join-Path $AndroidSdk 'build-tools/36.0.0/apksigner.bat'
 New-Item -ItemType Directory -Path artifacts -Force | Out-Null

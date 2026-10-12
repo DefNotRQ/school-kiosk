@@ -9,7 +9,9 @@ Open-source Android school browser, optimized for the Honor Pad 10. C# / .NET 10
 - New installs require choosing a private PIN; there is no public default. Updating an existing installation preserves its PIN, URL and data.
 - Five failed PIN attempts cause a one-minute lockout, persisted across app restarts.
 - An authenticated administrator can start a ten-minute pinning test. It expires automatically unless normal school hours are active; it does not change the tablet clock.
-- Wi-Fi, Bluetooth and system-permission Settings cannot be opened from the app during school hours. They remain available outside school hours. This intentionally closes the former "temporarily unpin into Settings" escape; it does not provide an in-kiosk network configuration interface.
+- Bluetooth controls are removed. Wi-Fi opens Android's network/password settings. During a lock window this requires the optional **School Kiosk Wi-Fi return guard** to be enabled in Android Accessibility settings beforehand. Without it the app refuses to unpin. System-permission setup remains outside school hours.
+- An active Wi-Fi maintenance session lasts at most five minutes. The guard lets Settings and the selected keyboard operate, and attempts to bring the kiosk back immediately when Home, Overview or another app appears. Android can briefly show the other app and require pinning confirmation again; this is a convenience guard, not a tamper-proof lockdown. Other Settings pages within the same Android Settings app are not distinguished.
+- Screen-off/on reloads the saved dashboard URL in the first tab without closing the other live tabs. The inactivity timer does not clear tabs during sleep. A full process kill/restart is different: tab-session persistence across process death is not implemented.
 - Up to 20 browser tabs, tab clearing, brightness controls, offline retry and WebView recovery.
 
 ## Background operation and limits
@@ -54,7 +56,7 @@ No advertising, analytics SDK, tracking service, remote command channel, camera,
 
 The PIN and browser session are app-private local data, not an encrypted credential vault. Do not reuse a banking/account password as the administrator PIN. APK signature/checksum verification checks integrity, **not a guarantee of absence of malware**. Review the public code and dependency reports; no software can honestly promise absolute security.
 
-Permission reasons: Internet/network state for browsing; boot receiver for schedule restoration; exact alarms for boundaries; overlay access for background launches; notifications and special-use foreground service for visible schedule monitoring; device-admin binding for optional managed kiosk mode.
+Permission reasons: Internet/network state for browsing; boot receiver for schedule restoration; exact alarms for boundaries; overlay access for background launches; notifications and special-use foreground service for visible schedule monitoring; device-admin binding for optional managed kiosk mode. The optional Accessibility service observes foreground window package metadata only during Wi-Fi maintenance; window-content access and gesture injection are disabled. It never reads event text, passwords or screen contents and sends nothing to a server. Enable/disable it using Android Accessibility settings. Guard behavior is not guaranteed if Android kills/disables it; device-owner mode remains necessary for strong enforcement.
 
 See [test report](docs/verification.md) for checks actually performed and unresolved cases.
 

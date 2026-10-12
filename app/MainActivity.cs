@@ -17,6 +17,8 @@ namespace SchoolKiosk;
 public sealed class MainActivity : Activity
 {
     internal static bool IsVisible { get; private set; }
+    private static event Action? ScreenWake;
+    internal static void NotifyScreenWake() => ScreenWake?.Invoke();
     private const int MaxTabs = 20;
     private KioskConfig config = null!;
     private FrameLayout browserHost = null!;
@@ -57,6 +59,7 @@ public sealed class MainActivity : Activity
         pinLockedUntil = config.PinLockedUntilUnixMs;
         lastInteraction = SystemClock.ElapsedRealtime();
         BuildUi();
+        ScreenWake += RestoreDashboardAfterWake;
         ApplyBrightness();
         ConfigureDeviceOwner();
         ScheduleMonitorService.EnsureRunning(this);
@@ -80,6 +83,8 @@ public sealed class MainActivity : Activity
         base.OnResume();
         resumed = true;
         IsVisible = true;
+        if (WifiMaintenance.EnteredSettings) WifiMaintenance.End();
+        RestoreDashboardAfterWake();
         if (config is not null) handler.Post(ApplySchedule);
     }
 
@@ -95,6 +100,7 @@ public sealed class MainActivity : Activity
         base.OnWindowFocusChanged(hasFocus);
         if (hasFocus)
         {
+            RestoreDashboardAfterWake();
             ApplySystemBarMode(config?.IsKioskTime(DateTime.Now) == true);
             UpdateIndicators();
         }
@@ -479,12 +485,27 @@ public sealed class MainActivity : Activity
     {
         if (tabs.Count <= 1) return;
         var closing = web;
-        var next = tabs[^2];
+        var index = tabs.IndexOf(closing);
+        var next = tabs[index == 0 ? 1 : index - 1];
         tabs.Remove(closing);
         browserHost.RemoveView(closing);
         closing.StopLoading();
         closing.Destroy();
         ActivateTab(next);
+    }
+
+    private void RestoreDashboardAfterWake()
+    {
+        if (!resumed || config is null || !config.DashboardOnWake) return;
+        if (((KeyguardManager?)GetSystemService(KeyguardService))?.IsKeyguardLocked == true) return;
+        if (((PowerManager?)GetSystemService(PowerService))?.IsInteractive != true) return;
+        // Reactivate the original tab; do not clear or recreate any other tab.
+        if (tabs.Count == 0) CreateTab(makeActive: true);
+        ActivateTab(tabs[0]);
+        web.LoadUrl(config.Url);
+        config.DashboardOnWake = false;
+        lastInteraction = SystemClock.ElapsedRealtime();
+        Android.Util.Log.Debug("SchoolKiosk", $"Wake dashboard restored; tabs retained: {tabs.Count}");
     }
 
     private void ResetTabs()
@@ -527,7 +548,7 @@ public sealed class MainActivity : Activity
 
     private void CheckInactivityReset()
     {
-        if (!config.IsKioskTime(DateTime.Now) || adminSessionOpen) return;
+        if (!resumed || config.DashboardOnWake || !config.IsKioskTime(DateTime.Now) || adminSessionOpen) return;
         var timeout = config.IdleResetMinutes * 60_000L;
         var now = SystemClock.ElapsedRealtime();
         if (now - lastInteraction < timeout) return;
@@ -544,6 +565,7 @@ public sealed class MainActivity : Activity
         var keyguard = (KeyguardManager?)GetSystemService(KeyguardService);
         if (keyguard?.IsKeyguardLocked == true) return;
         var shouldLock = config.SetupComplete && config.IsKioskTime(DateTime.Now);
+        if (WifiMaintenance.Active && WifiReturnGuardService.Connected) return;
         // Keep the real system controls available outside scheduled kiosk
         // hours. During a kiosk period, lock task and immersive mode suppress
         // Home/Recents as intended.
@@ -572,16 +594,8 @@ public sealed class MainActivity : Activity
             {
                 pinRequestPending = true;
                 StartLockTask();
-                handler.PostDelayed(() =>
-                {
-                    var manager = (ActivityManager?)GetSystemService(ActivityService);
-                    var pinned = manager is not null && (int)manager.LockTaskModeState != 0;
-                    if (!pinned && config.IsKioskTime(DateTime.Now))
-                    {
-                        pinRequestPending = false;
-                        // Retry only from the regular foreground schedule check.
-                    }
-                }, 10_000);
+                // Do not stack Android confirmation dialogs while one is pending.
+                // Ordinary pinning is user-controlled; declining is not bypassed.
             }
             catch { pinRequestPending = false; }
         }
@@ -780,11 +794,13 @@ public sealed class MainActivity : Activity
         accessCard.AddView(pin, new LinearLayout.LayoutParams(-1, Dp(58)) { TopMargin = Dp(14), BottomMargin = Dp(8) });
         var pinHelp = Body("Choose a private administrator PIN. There is no default PIN on new installations.");
         accessCard.AddView(pinHelp, Margin(bottom: 16));
-        var testLock = SecondaryButton("Test pinning for 10 minutes", "Automatically releases after the test, unless school hours are active");
+        var testLock = SecondaryButton(config.TestLockUntilUtcMs > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            ? "Stop pinning test" : "Test pinning for 10 minutes", "Automatically releases after the test, unless school hours are active");
         testLock.Click += (_, _) =>
         {
             if (firstRun) { ShowNotice("Finish setup first", "Save your administrator PIN before starting a pinning test."); return; }
-            config.TestLockUntilUtcMs = DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeMilliseconds();
+            config.TestLockUntilUtcMs = config.TestLockUntilUtcMs > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                ? 0 : DateTimeOffset.UtcNow.AddMinutes(10).ToUnixTimeMilliseconds();
             dialog.Dismiss();
             ScheduleMonitorService.EnsureRunning(this);
             ScheduleReceiver.ScheduleNext(this);
@@ -795,11 +811,17 @@ public sealed class MainActivity : Activity
         var connectivityRow = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         var wifi = SecondaryButton("Wi-Fi", "Networks & internet");
         wifi.Click += (_, _) => OpenWifiPanel();
-        var bluetooth = SecondaryButton("Bluetooth", "Devices & accessories");
-        bluetooth.Click += (_, _) => OpenBluetoothPanel();
-        connectivityRow.AddView(wifi, new LinearLayout.LayoutParams(0, Dp(66), 1) { RightMargin = Dp(6) });
-        connectivityRow.AddView(bluetooth, new LinearLayout.LayoutParams(0, Dp(66), 1) { LeftMargin = Dp(6) });
+        connectivityRow.AddView(wifi, new LinearLayout.LayoutParams(-1, Dp(66)));
         accessCard.AddView(connectivityRow, new LinearLayout.LayoutParams(-1, Dp(66)) { BottomMargin = Dp(9) });
+        var guard = SecondaryButton("Wi-Fi return guard", WifiReturnGuardService.Connected
+            ? "Enabled: returns when you leave Wi-Fi settings" : "Optional Accessibility access: setup outside school hours");
+        guard.Click += (_, _) =>
+        {
+            if (config.IsKioskTime(DateTime.Now))
+                ShowNotice("Enable outside school hours", "Enable School Kiosk Wi-Fi return guard in Android Accessibility settings before using Wi-Fi maintenance during school hours. It observes app changes only, not text or passwords.");
+            else StartActivity(new Intent(Settings.ActionAccessibilitySettings));
+        };
+        accessCard.AddView(guard, new LinearLayout.LayoutParams(-1, Dp(66)) { BottomMargin = Dp(9) });
 
         var reliabilityReady = HasOverlayAccess() && HasExactAlarmAccess();
         var reliability = SecondaryButton("Background launch access",
@@ -1155,37 +1177,16 @@ public sealed class MainActivity : Activity
         {
             try
             {
-                StartActivity(new Intent(Settings.Panel.ActionWifi));
+                StartActivity(new Intent(Settings.ActionWifiSettings));
             }
             catch
             {
                 try { StartActivity(new Intent(Settings.ActionWifiSettings)); }
                 catch
                 {
+                    WifiMaintenance.End();
                     ApplySchedule();
                     Toast.MakeText(this, "Wi-Fi settings are unavailable", ToastLength.Long)!.Show();
-                }
-            }
-        }
-
-        OpenMaintenancePanel(LaunchPanel);
-    }
-
-    private void OpenBluetoothPanel()
-    {
-        void LaunchPanel()
-        {
-            try
-            {
-                StartActivity(new Intent(Settings.ActionBluetoothSettings));
-            }
-            catch
-            {
-                try { StartActivity(new Intent(Settings.ActionWirelessSettings)); }
-                catch
-                {
-                    ApplySchedule();
-                    Toast.MakeText(this, "Bluetooth settings are unavailable", ToastLength.Long)!.Show();
                 }
             }
         }
@@ -1205,7 +1206,20 @@ public sealed class MainActivity : Activity
             return;
         }
 
-        ShowNotice("Settings stay locked", "Android connectivity settings can leave the kiosk. Configure Wi-Fi and Bluetooth outside school hours; the app will not unpin to open them.");
+        if (!WifiReturnGuardService.Connected)
+        {
+            ShowNotice("Enable the Wi-Fi return guard", "For Wi-Fi password changes during school hours, first enable School Kiosk Wi-Fi return guard in Android Accessibility settings outside school hours. Without it, the app will not unpin into Settings.");
+            return;
+        }
+        WifiMaintenance.Begin();
+        try { if (isLocked) StopLockTask(); }
+        catch { WifiMaintenance.End(); return; }
+        handler.PostDelayed(() =>
+        {
+            if (!resumed || !WifiReturnGuardService.Connected || !WifiMaintenance.Active)
+            { WifiMaintenance.End(); ApplySchedule(); return; }
+            launchPanel();
+        }, 250);
     }
 
     private bool HasOverlayAccess()
@@ -1305,6 +1319,7 @@ public sealed class MainActivity : Activity
 
     protected override void OnDestroy()
     {
+        ScreenWake -= RestoreDashboardAfterWake;
         if (Window?.DecorView is not null)
             Window.DecorView.SystemUiVisibilityChange -= OnSystemUiVisibilityChanged;
         chargingPulse?.Cancel();

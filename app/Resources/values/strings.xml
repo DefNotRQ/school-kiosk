@@ -1,0 +1,3 @@
+<resources>
+    <string name="wifi_guard_description">Optional kiosk return guard. During a five-minute Wi-Fi settings session, observes only foreground app changes and returns to School Kiosk if you leave Settings. Does not read screen contents, passwords or typed text. No data is sent. Enable only if you want this behavior; disable here at any time. Not a tamper-proof managed kiosk.</string>
+</resources>

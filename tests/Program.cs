@@ -17,3 +17,13 @@ Check(SchoolSchedule.NextChange(monday.AddDays(4).AddHours(16)) == monday.AddDay
 Check(!SchoolSchedule.IsActive(monday.AddHours(8).AddMinutes(30).AddTicks(-1)), "before start");
 Check(!SchoolSchedule.IsActive(monday.AddHours(15).AddMinutes(30)), "end exclusive");
 Console.WriteLine($"PASS: {checks} schedule assertions (14 complete days, boundaries and weekends).");
+var own = "com.ahura.schoolkiosk";
+var keyboard = "example.keyboard";
+Check(!WifiReturnPolicy.ShouldReturn(null, own, keyboard), "ignore missing event package");
+Check(!WifiReturnPolicy.ShouldReturn(own, own, keyboard), "allow kiosk");
+Check(!WifiReturnPolicy.ShouldReturn("com.android.settings", own, keyboard), "allow Wi-Fi settings");
+Check(!WifiReturnPolicy.ShouldReturn(keyboard, own, keyboard), "allow password keyboard");
+Check(WifiReturnPolicy.ShouldReturn("com.hihonor.android.launcher", own, keyboard), "return from Home");
+Check(!WifiReturnPolicy.ShouldReturn("com.android.systemui", own, keyboard), "allow Android pin/unpin transition windows");
+Check(WifiReturnPolicy.ShouldReturn("example.otherapp", own, keyboard), "return from other apps");
+Console.WriteLine("PASS: 7 Wi-Fi return policy assertions.");

@@ -37,6 +37,8 @@ public sealed class ScheduleMonitorService : Service
         var filter = new IntentFilter(Intent.ActionTimeChanged);
         filter.AddAction(Intent.ActionTimezoneChanged);
         filter.AddAction(Intent.ActionUserPresent);
+        filter.AddAction(Intent.ActionScreenOff);
+        filter.AddAction(Intent.ActionScreenOn);
         if (OperatingSystem.IsAndroidVersionAtLeast(33))
             RegisterReceiver(clockReceiver, filter, ReceiverFlags.NotExported);
         else RegisterReceiver(clockReceiver, filter);
@@ -54,7 +56,8 @@ public sealed class ScheduleMonitorService : Service
         var config = new KioskConfig(this);
         var active = config.SetupComplete && config.IsKioskTime(DateTime.Now);
         var keyguard = (KeyguardManager?)GetSystemService(KeyguardService);
-        if ((active || wasActive) && !MainActivity.IsVisible && keyguard?.IsKeyguardLocked != true)
+        var maintenance = WifiMaintenance.Active && WifiReturnGuardService.Connected;
+        if (!maintenance && (active || wasActive) && !MainActivity.IsVisible && keyguard?.IsKeyguardLocked != true)
         {
             var launch = new Intent(this, typeof(MainActivity));
             launch.AddFlags(ActivityFlags.NewTask | ActivityFlags.ClearTop | ActivityFlags.SingleTop);
@@ -77,6 +80,17 @@ public sealed class ScheduleMonitorService : Service
 
     private sealed class ClockReceiver(ScheduleMonitorService owner) : BroadcastReceiver
     {
-        public override void OnReceive(Context? context, Intent? intent) => owner.Tick();
+        public override void OnReceive(Context? context, Intent? intent)
+        {
+            if (intent?.Action == Intent.ActionScreenOff)
+            {
+                WifiMaintenance.End();
+                new KioskConfig(owner).DashboardOnWake = true;
+                return;
+            }
+            if (intent?.Action == Intent.ActionScreenOn || intent?.Action == Intent.ActionUserPresent)
+                MainActivity.NotifyScreenWake();
+            owner.Tick();
+        }
     }
 }

@@ -17,6 +17,7 @@ internal sealed class KioskConfig
     public bool AdaptiveBrightness { get => prefs.GetBoolean("adaptiveBrightness", true); set => Put("adaptiveBrightness", value); }
     public int IdleResetMinutes { get => prefs.GetInt("idleResetMinutes", 10); set => Put("idleResetMinutes", Math.Clamp(value, 1, 60)); }
     public long TestLockUntilUtcMs { get => prefs.GetLong("testLockUntil", 0); set => prefs.Edit()!.PutLong("testLockUntil", value)!.Commit(); }
+    public bool DashboardOnWake { get => prefs.GetBoolean("dashboardOnWake", false); set => prefs.Edit()!.PutBoolean("dashboardOnWake", value)!.Commit(); }
     public int FailedPinAttempts
     {
         get => prefs.GetInt("failedPinAttempts", 0);
