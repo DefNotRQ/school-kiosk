@@ -14,11 +14,13 @@ Test device: Honor Pad 10, Android API 36, unmanaged (no device owner). Updated 
 - Simulated 15:30 releases pinning and returns to Honor Home automatically.
 - Automatic date/time restored after clock simulation; original Honor Home remains the default launcher.
 - Foreground schedule service remains running outside the browser; Android reports foreground notification ID 90 and special-use service type.
+- Published release APK verifies with Android v2/v3 signatures. Release includes its exact source commit and SHA-256 checksum; signing key is not in GitHub.
+- NuGet vulnerability query returned no known vulnerable packages in its current source database. This does not cover Android WebView/OS vulnerabilities or constitute antivirus certification.
 
 ## Pending / not established
 
 - User-reported multi-touch wallpaper-only failure: foreground/keyguard guards and reduced pinning retries mitigate suspect transitions, but the exact failure has not been reproduced or proven fixed. User is testing a ten-minute pinning window.
-- Reboot/autostart, background recovery over long sleep, and final-APK regression checks still pending.
+- Reboot/autostart, background recovery over long sleep, and final-APK regression checks still pending. Rebuilt release APK is not byte-identical to the installed test APK, though app source is the same; do not treat that as binary verification.
 - Device-owner mode not tested: current device has no owner. Ordinary pinning is not equivalent to managed kiosk mode.
 - No claim of comprehensive malware certification. Source/dependency, signature and checksum checks do not prove absence of all vulnerabilities.
 
