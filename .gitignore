@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+artifacts/
+*.user
+*.p12
+*.jks
+*.keystore
+*.pem
+*.key
+.env*
+.vs/
+signing/
